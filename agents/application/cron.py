@@ -2,14 +2,14 @@ from agents.application.trade import Trader
 
 import time
 
-from scheduler import Scheduler
+from scheduler import Scheduler as SchedulerLib
 from scheduler.trigger import Monday
 
 
-class Scheduler:
+class TraderScheduler:
     def __init__(self) -> None:
         self.trader = Trader()
-        self.schedule = Scheduler()
+        self.schedule = SchedulerLib()
 
     def start(self) -> None:
         while True:
@@ -17,8 +17,11 @@ class Scheduler:
             time.sleep(1)
 
 
-class TradingAgent(Scheduler):
+class TradingAgent(TraderScheduler):
     def __init__(self) -> None:
-        super()
-        self.trader = Trader()
+        super().__init__()
         self.weekly(Monday(), self.trader.one_best_trade)
+
+    def weekly(self, trigger, handle, **kwargs):
+        """Schedule a weekly job via the underlying scheduler library."""
+        self.schedule.weekly(trigger, handle, **kwargs)
