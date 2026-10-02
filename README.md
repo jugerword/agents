@@ -47,7 +47,9 @@ This code is free and publicly available under MIT License open source license (
 
 # Getting started
 
-This repo is inteded for use with Python 3.9
+> **Python requirement**: the pinned dependencies need **Python ≥ 3.9.10**
+> (`poly_eip712_structs` requires it) and some packages only build cleanly on
+> **Python 3.10/3.11**. The project is developed and tested on **Python 3.11**.
 
 1. Clone the repository
 
@@ -59,7 +61,9 @@ This repo is inteded for use with Python 3.9
 2. Create the virtual environment
 
    ```
-   virtualenv --python=python3.9 .venv
+   python3.11 -m venv .venv
+   # or with uv:
+   # uv venv --python 3.11 .venv
    ```
 
 3. Activate the virtual environment
@@ -82,6 +86,10 @@ This repo is inteded for use with Python 3.9
    pip install -r requirements.txt
    ```
 
+   > If `pysha3` fails to build on Python 3.11, install with
+   > `pip install -r requirements.txt` excluding `pysha3`, then
+   > `pip install --no-deps eip712-structs==1.1.0`.
+
 5. Set up your environment variables:
 
    - Create a `.env` file in the project root directory
@@ -96,6 +104,26 @@ This repo is inteded for use with Python 3.9
    POLYGON_WALLET_PRIVATE_KEY=""
    OPENAI_API_KEY=""
    ```
+
+   **MiniMax backend (no OpenAI key needed):** set `OPENAI_API_KEY` to your
+   MiniMax subscription key and point the base URLs at MiniMax:
+
+   ```
+   OPENAI_API_KEY="<minimax subscription key>"
+   OPENAI_BASE_URL="https://api.minimax.cn/v1"
+   OPENAI_API_BASE="https://api.minimax.cn/v1"
+   ```
+
+   - `OPENAI_API_BASE` is read by the LLM layer (ChatOpenAI) **and** used to
+     decide the embeddings provider: if the base contains `minimax`, RAG uses
+     the built-in `MiniMaxEmbeddings` adapter; otherwise it assumes an
+     OpenAI-compatible embeddings endpoint. Force the choice with
+     `EMBEDDING_PROVIDER=openai|minimax`. `EMBEDDING_MODEL` overrides the
+     embedding model name (default `embo-01` for MiniMax,
+     `text-embedding-3-small` for OpenAI).
+
+   - `TAVILY_API_KEY` / `NEWSAPI_API_KEY` are optional news/web data sources
+     for the superforecaster flow.
 
 6. Load your wallet with USDC.
 
@@ -161,6 +189,31 @@ Retrieve and display a list of markets from Polymarket, sorted by volume.
 
 - limit: The number of markets to retrieve (default: 5).
 - sort_by: The sorting criterion, either volume (default) or another valid attribute.
+
+## Running tests
+
+The test suite covers the news connector's endpoint selection, the MiniMax
+embeddings adapter, the embedding-provider dispatch, and the cron scheduler
+logic. It is offline (all external calls are mocked):
+
+```
+export PYTHONPATH="."
+pytest tests/ -v
+```
+
+## Known issues & troubleshooting
+
+- **Broken SOCKS proxy**: if your shell exports `all_proxy=socks5://127.0.0.1:7890`
+  and that SOCKS service is down, every `httpx`/`requests` call can fail with
+  `SSL: UNEXPECTED_EOF_WHILE_READING` or time out. The `MiniMaxEmbeddings`
+  adapter bypasses env proxies (`trust_env=False`), but other connectors read
+  them. Run with `all_proxy=` (or `unset all_proxy`) when that happens.
+- **NewsAPI keyword search**: the CLI's `get-relevant-news` uses the
+  `everything` endpoint, which requires the keyword via `q`. A NewsAPI free
+  plan returns limited results per query.
+- **Trade execution is commented out** in `agents/application/trade.py` for
+  Polymarket Terms of Service reasons; uncomment only if you are permitted to
+  trade on Polymarket.
 
 # Contributing
 
