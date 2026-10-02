@@ -1,4 +1,5 @@
 import json
+from typing import Callable
 
 
 def parse_camel_case(key) -> str:
@@ -32,7 +33,7 @@ def preprocess_market_object(market_object: dict) -> dict:
     return market_object
 
 
-def preprocess_local_json(file_path: str, preprocessor_function: function) -> None:
+def preprocess_local_json(file_path: str, preprocessor_function: Callable) -> None:
     with open(file_path, "r+") as open_file:
         data = json.load(open_file)
 

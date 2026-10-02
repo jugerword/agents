@@ -49,13 +49,13 @@ class News:
     ) -> "list[Article]":
 
         all_articles = {}
-        # Default to top articles if no start and end dates are given for search
+        # Use the "everything" endpoint for keyword search: "top-headlines"
+        # ignores the q parameter for keyword queries and returns empty lists.
         if not date_start and not date_end:
             for option in market_options:
-                response_dict = self.API.get_top_headlines(
+                response_dict = self.API.get_everything(
                     q=option.strip(),
                     language=self.configs["language"],
-                    country=self.configs["country"],
                 )
                 articles = response_dict["articles"]
                 all_articles[option] = articles

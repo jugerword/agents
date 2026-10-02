@@ -14,17 +14,25 @@ from agents.utils.objects import SimpleEvent, SimpleMarket
 def get_embedding_function():
     """Return the configured embeddings implementation.
 
-    Uses OpenAIEmbeddings when an OpenAI-compatible embeddings endpoint is
-    available (OPENAI_API_KEY + OPENAI_API_BASE), otherwise falls back to
-    MiniMaxEmbeddings (which reads the same OPENAI_API_KEY subscription key).
-    Force a specific provider with EMBEDDING_PROVIDER=openai|minimax.
+    The same OPENAI_API_BASE is shared by the LLM (ChatOpenAI) and this
+    function, so it cannot be used alone to decide the embeddings provider:
+    MiniMax's chat endpoint is OpenAI-compatible but its embeddings endpoint
+    is not (it uses texts/vectors instead of input/data).
+
+    Resolution order:
+      - EMBEDDING_PROVIDER=minimax  -> MiniMaxEmbeddings
+      - EMBEDDING_PROVIDER=openai   -> OpenAIEmbeddings
+      - default: MiniMaxEmbeddings when the configured base is MiniMax or
+        unset; OpenAIEmbeddings otherwise (custom OpenAI-compatible endpoint).
     """
     provider = os.getenv("EMBEDDING_PROVIDER", "").lower()
-    if provider == "minimax" or (provider != "openai" and not os.getenv("OPENAI_API_BASE")):
-        return MiniMaxEmbeddings()
-    return OpenAIEmbeddings(
-        model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    )
+    base = os.getenv("OPENAI_API_BASE", "") or os.getenv("OPENAI_BASE_URL", "")
+    is_minimax = "minimax" in base.lower()
+    if provider == "openai" or (provider != "minimax" and base and not is_minimax):
+        return OpenAIEmbeddings(
+            model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        )
+    return MiniMaxEmbeddings()
 
 
 class PolymarketRAG:
