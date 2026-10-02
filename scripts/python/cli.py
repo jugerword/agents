@@ -9,9 +9,18 @@ from agents.application.executor import Executor
 from agents.application.creator import Creator
 
 app = typer.Typer()
-polymarket = Polymarket()
-newsapi_client = News()
-polymarket_rag = PolymarketRAG()
+
+
+def get_polymarket() -> Polymarket:
+    return Polymarket()
+
+
+def get_news() -> News:
+    return News()
+
+
+def get_polymarket_rag() -> PolymarketRAG:
+    return PolymarketRAG()
 
 
 @app.command()
@@ -20,6 +29,7 @@ def get_all_markets(limit: int = 5, sort_by: str = "spread") -> None:
     Query Polymarket's markets
     """
     print(f"limit: int = {limit}, sort_by: str = {sort_by}")
+    polymarket = get_polymarket()
     markets = polymarket.get_all_markets()
     markets = polymarket.filter_markets_for_trading(markets)
     if sort_by == "spread":
@@ -33,6 +43,7 @@ def get_relevant_news(keywords: str) -> None:
     """
     Use NewsAPI to query the internet
     """
+    newsapi_client = get_news()
     articles = newsapi_client.get_articles_for_cli_keywords(keywords)
     pprint(articles)
 
@@ -43,6 +54,7 @@ def get_all_events(limit: int = 5, sort_by: str = "number_of_markets") -> None:
     Query Polymarket's events
     """
     print(f"limit: int = {limit}, sort_by: str = {sort_by}")
+    polymarket = get_polymarket()
     events = polymarket.get_all_events()
     events = polymarket.filter_events_for_trading(events)
     if sort_by == "number_of_markets":
@@ -56,6 +68,7 @@ def create_local_markets_rag(local_directory: str) -> None:
     """
     Create a local markets database for RAG
     """
+    polymarket_rag = get_polymarket_rag()
     polymarket_rag.create_local_markets_rag(local_directory=local_directory)
 
 
@@ -64,6 +77,7 @@ def query_local_markets_rag(vector_db_directory: str, query: str) -> None:
     """
     RAG over a local database of Polymarket's events
     """
+    polymarket_rag = get_polymarket_rag()
     response = polymarket_rag.query_local_markets_rag(
         local_directory=vector_db_directory, query=query
     )
