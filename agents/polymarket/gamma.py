@@ -134,7 +134,14 @@ class GammaMarketClient:
         )
 
     def get_all_current_markets(self, limit=100) -> "list[Market]":
-        offset = 0
+        # Gamma API rejects offset pagination beyond 2000 ("offset too large,
+        # use /markets/keyset for deeper pagination"), so paginate via keyset.
+        # GET /markets/keyset?limit=N&keyset=<next_cursor>
+        # Retry transient proxy/SSL failures (observed: mihomo proxy drops
+        # long-lived connections intermittently).
+        import time as _time
+
+        next_cursor = ""
         all_markets = []
         while True:
             params = {
@@ -142,14 +149,36 @@ class GammaMarketClient:
                 "closed": False,
                 "archived": False,
                 "limit": limit,
-                "offset": offset,
+                "keyset": next_cursor,
             }
-            market_batch = self.get_markets(querystring_params=params)
+            market_batch = []
+            for attempt in range(3):
+                try:
+                    response = httpx.get(
+                        f"{self.gamma_url}/markets/keyset",
+                        params=params,
+                        timeout=30,
+                    )
+                    if response.status_code != 200:
+                        print(
+                            "Error response returned from api: "
+                            f"HTTP {response.status_code}"
+                        )
+                        raise Exception()
+                    data = response.json()
+                    market_batch = data.get("markets", [])
+                    next_cursor = data.get("next_cursor", "")
+                    break
+                except Exception as err:
+                    if attempt == 2:
+                        raise
+                    print(f"[keyset] batch retry {attempt+1}: {err}")
+                    _time.sleep(2)
+
             all_markets.extend(market_batch)
 
-            if len(market_batch) < limit:
+            if not next_cursor or len(market_batch) < limit:
                 break
-            offset += limit
 
         return all_markets
 
