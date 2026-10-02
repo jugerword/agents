@@ -4,7 +4,7 @@ import time
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import JSONLoader
-from langchain_community.vectorstores.chroma import Chroma
+from langchain_chroma import Chroma
 
 from agents.connectors.embeddings import MiniMaxEmbeddings
 from agents.polymarket.gamma import GammaMarketClient
