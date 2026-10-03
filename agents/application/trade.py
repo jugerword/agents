@@ -1,4 +1,5 @@
 import contextlib
+import os
 import shutil
 
 from agents.application.executor import Executor as Agent
@@ -20,6 +21,25 @@ class Trader:
             shutil.rmtree("local_db_events")
         with contextlib.suppress(Exception):
             shutil.rmtree("local_db_markets")
+
+    def _cap_position(self, amount: float) -> float:
+        """Hard caps on a single order.
+
+        - MAX_TRADE_USD: absolute per-order ceiling (env, default $5).
+        - 10% of USDC balance: never risk more than a tenth of the wallet.
+        A balance query failure returns 0.0, which yields 0 and aborts the
+        order — a safety default, never a lucky guess.
+        """
+        ceiling = float(os.getenv("MAX_TRADE_USD", "5"))
+        capped = min(amount, ceiling)
+        balance = self.polymarket.get_usdc_balance()
+        if balance <= 0:
+            print("[_cap_position] USDC balance query failed/zero; aborting order")
+            return 0.0
+        capped = min(capped, balance * 0.10)
+        print(f"[_cap_position] amount={amount:.4f} -> capped={capped:.4f} "
+              f"(ceiling={ceiling}, 10% of balance={balance * 0.10:.4f})")
+        return capped
 
     def one_best_trade(self, max_attempts: int = 3) -> None:
         """
@@ -57,13 +77,14 @@ class Trader:
                 best_trade = self.agent.source_best_trade(market)
                 print(f"5. CALCULATED TRADE {best_trade}")
 
-                # Compute the position size; execution is disabled for TOS
-                # reasons (polymarket.com/tos). Keeping the variable documents
-                # the intended flow and is used once execution is re-enabled.
-                amount = self.agent.format_trade_prompt_for_execution(best_trade)  # noqa: F841
-                # Please refer to TOS before uncommenting: polymarket.com/tos
-                # trade = self.polymarket.execute_market_order(market, amount)
-                # print(f"6. TRADED {trade}")
+                amount = self.agent.format_trade_prompt_for_execution(best_trade)
+                amount = self._cap_position(amount)
+                if amount <= 0:
+                    print("6. ORDER SKIPPED (amount <= 0)")
+                    return
+
+                trade = self.polymarket.execute_market_order(market, amount)
+                print(f"6. TRADED {trade}")
                 return
 
             except Exception as e:
