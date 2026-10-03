@@ -51,8 +51,7 @@ class Polymarket:
 
         self.chain_id = 137  # POLYGON
         self.private_key = os.getenv("POLYGON_WALLET_PRIVATE_KEY")
-        self.polygon_rpc = "https://polygon-rpc.com"
-        self.w3 = Web3(Web3.HTTPProvider(self.polygon_rpc))
+        self.w3 = self._build_web3()
 
         self.exchange_address = "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e"
         self.neg_risk_exchange_address = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
@@ -63,7 +62,7 @@ class Polymarket:
         self.usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
         self.ctf_address = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 
-        self.web3 = Web3(Web3.HTTPProvider(self.polygon_rpc))
+        self.web3 = self.w3
         self.web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
         self.usdc = self.web3.eth.contract(
@@ -74,6 +73,24 @@ class Polymarket:
         )
 
         self._init_approvals(False)
+
+    def _build_web3(self) -> Web3:
+        """Connect to a reachable Polygon RPC, trying keyless public
+        endpoints in order. polygon-rpc.com now requires an API key
+        (401/403), so it is no longer usable as a default."""
+        rpcs = [
+            "https://polygon-bor-rpc.publicnode.com",
+            "https://polygon.drpc.org",
+        ]
+        for rpc in rpcs:
+            try:
+                w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 20}))
+                if w3.is_connected():
+                    print(f"[Polymarket] using Polygon RPC: {rpc}")
+                    return w3
+            except Exception as exc:  # noqa: BLE001 - try next RPC
+                print(f"[Polymarket] RPC {rpc} unreachable: {exc}")
+        raise RuntimeError(f"no reachable Polygon RPC among: {rpcs}")
 
     def _ensure_api_keys(self) -> None:
         """Lazily initialise the CLOB client (requires a network call to
