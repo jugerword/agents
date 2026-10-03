@@ -136,12 +136,15 @@ class GammaMarketClient:
     def get_all_current_markets(self, limit=100) -> "list[Market]":
         # Gamma API rejects offset pagination beyond 2000 ("offset too large,
         # use /markets/keyset for deeper pagination"), so paginate via keyset.
-        # GET /markets/keyset?limit=N&keyset=<next_cursor>
+        # GET /markets/keyset?limit=N&after_cursor=<cursor> — the request
+        # parameter is after_cursor (NOT keyset/next_cursor; those silently
+        # return the same first page, causing an infinite loop). The response
+        # carries the next cursor in the next_cursor field.
         # Retry transient proxy/SSL failures (observed: mihomo proxy drops
         # long-lived connections intermittently).
         import time as _time
 
-        next_cursor = ""
+        cursor = ""
         all_markets = []
         while True:
             params = {
@@ -149,7 +152,7 @@ class GammaMarketClient:
                 "closed": False,
                 "archived": False,
                 "limit": limit,
-                "keyset": next_cursor,
+                "after_cursor": cursor,
             }
             market_batch = []
             for attempt in range(5):
@@ -167,7 +170,7 @@ class GammaMarketClient:
                         raise Exception()
                     data = response.json()
                     market_batch = data.get("markets", [])
-                    next_cursor = data.get("next_cursor", "")
+                    cursor = data.get("next_cursor", "")
                     break
                 except Exception as err:
                     if attempt == 4:
@@ -178,7 +181,7 @@ class GammaMarketClient:
 
             all_markets.extend(market_batch)
 
-            if not next_cursor or len(market_batch) < limit:
+            if not cursor or len(market_batch) < limit:
                 break
 
         return all_markets
