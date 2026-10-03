@@ -172,6 +172,15 @@ Polymarket Agents connectors standardize data sources and order types.
 
 - `Polymarket.py`: defines a Polymarket class that interacts with the Polymarket API to retrieve and manage market and event data, and to execute orders on the Polymarket DEX. It includes methods for API key initialization, market and event data retrieval, and trade execution. The file also provides utility functions for building and signing orders, as well as examples for testing API interactions.
 
+> **Order execution (real trading)**: the Python clob SDK (`py-clob-client`,
+> including the latest PyPI/GitHub release) only emits V1 orders, which the
+> exchange rejects with `400 invalid order version`. `execute_market_order`
+> therefore delegates signing/placement to the verified Rust executor
+> `~/workspace/pm-first-trade` (Rust SDK 0.8.0, Gnosis-Safe signing for
+> smart-contract wallets). Set `PM_FIRST_TRADE_BIN` to override the binary
+> path; `DRY_RUN=1` runs the whole decision + execution pipeline without
+> placing an order.
+
 - `Objects.py`: data models using Pydantic; representations for trades, markets, events, and related entities.
 
 ### Scripts
@@ -228,6 +237,14 @@ ruff check agents scripts tests
 - **NewsAPI keyword search**: the CLI's `get-relevant-news` uses the
   `everything` endpoint, which requires the keyword via `q`. A NewsAPI free
   plan returns limited results per query.
+- **Python SDK can't place orders today**: `py-clob-client` (all versions)
+  signs V1 orders; the exchange requires the current V3 order format. Use the
+  Rust executor (`pm-first-trade`, wired via `execute_order_via_rust`) for
+  real orders — the decision pipeline (RAG + LLM + position caps) stays
+  fully in agents.
+- **CLOB token ids**: the CLOB API now requires decimal token ids
+  (`/tick-size`, `/book`, `/price`, order posting); gamma returns hex ids.
+  `Polymarket._to_decimal_token_id` normalises on every call.
 - **Trade execution is commented out** in `agents/application/trade.py` for
   Polymarket Terms of Service reasons; uncomment only if you are permitted to
   trade on Polymarket.

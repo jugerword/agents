@@ -10,10 +10,8 @@ import httpx
 from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import (
-    MarketOrderArgs,
     OrderArgs,
     OrderBookSummary,
-    OrderType,
 )
 from py_order_utils.builders import OrderBuilder
 from py_order_utils.model import OrderData
@@ -25,6 +23,15 @@ from web3.middleware import geth_poa_middleware
 from agents.utils.objects import SimpleEvent, SimpleMarket
 
 load_dotenv()
+
+# Wallet identity: the signer EOA holds no funds; funds live on a Gnosis
+# Safe (browser-wallet style). py-clob-client 0.34.6 supports signing for
+# smart-contract wallets via signature_type=2 (POLY_GNOSIS_SAFE) + funder.
+# Configure via env:
+#   POLY_SIGNATURE_TYPE=2 POLY_FUNDER_ADDRESS=0x6949…F998
+# (leave both unset to keep the plain EOA behaviour)
+_POLY_SIGNATURE_TYPE = int(os.getenv("POLY_SIGNATURE_TYPE", "0"))
+_POLY_FUNDER_ADDRESS = os.getenv("POLY_FUNDER_ADDRESS") or None
 
 # macOS env-proxy (http_proxy/all_proxy) interacts badly with mihomo: requests
 # through it intermittently fail with SSL EOF. Use an explicit proxy + disable
@@ -60,13 +67,19 @@ class Polymarket:
         self.erc1155_set_approval = """[{"inputs": [{ "internalType": "address", "name": "operator", "type": "address" },{ "internalType": "bool", "name": "approved", "type": "bool" }],"name": "setApprovalForAll","outputs": [],"stateMutability": "nonpayable","type": "function"}]"""  # noqa: E501
 
         self.usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+        # Polymarket's current collateral is pUSD (USDC.e is legacy and holds
+        # no funds on this wallet). Override via COLLATERAL_ADDRESS if needed.
+        self.collateral_address = os.getenv(
+            "COLLATERAL_ADDRESS",
+            "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB",
+        )
         self.ctf_address = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 
         self.web3 = self.w3
         self.web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
         self.usdc = self.web3.eth.contract(
-            address=self.usdc_address, abi=self.erc20_approve
+            address=self.collateral_address, abi=self.erc20_approve
         )
         self.ctf = self.web3.eth.contract(
             address=self.ctf_address, abi=self.erc1155_set_approval
@@ -100,8 +113,13 @@ class Polymarket:
             self._init_api_keys()
 
     def _init_api_keys(self) -> None:
+        kwargs: dict = {}
+        if _POLY_SIGNATURE_TYPE:
+            kwargs["signature_type"] = _POLY_SIGNATURE_TYPE
+        if _POLY_FUNDER_ADDRESS:
+            kwargs["funder"] = _POLY_FUNDER_ADDRESS
         self.client = ClobClient(
-            self.clob_url, key=self.private_key, chain_id=self.chain_id
+            self.clob_url, key=self.private_key, chain_id=self.chain_id, **kwargs
         )
         self.credentials = self.client.create_or_derive_api_creds()
         self.client.set_api_creds(self.credentials)
@@ -317,11 +335,20 @@ class Polymarket:
 
     def get_orderbook(self, token_id: str) -> OrderBookSummary:
         self._ensure_api_keys()
-        return self.client.get_order_book(token_id)
+        return self.client.get_order_book(self._to_decimal_token_id(token_id))
 
-    def get_orderbook_price(self, token_id: str) -> float:
+    def get_orderbook_price(self, token_id: str, side: str = "BUY") -> float:
         self._ensure_api_keys()
-        return float(self.client.get_price(token_id))
+        resp = self.client.get_price(self._to_decimal_token_id(token_id), side)
+        return float(resp["price"])
+
+    @staticmethod
+    def _to_decimal_token_id(token_id: str) -> str:
+        """The CLOB API (py-clob-client >= 0.34) requires token ids in
+        decimal string form; gamma returns hex ids."""
+        if token_id and token_id.startswith("0x"):
+            return str(int(token_id, 16))
+        return token_id
 
     def get_address_for_private_key(self):
         account = self.w3.eth.account.from_key(str(self.private_key))
@@ -361,26 +388,83 @@ class Polymarket:
             OrderArgs(price=price, size=size, side=side, token_id=token_id)
         )
 
-    def execute_market_order(self, market, amount) -> str:
-        self._ensure_api_keys()
-        token_id = ast.literal_eval(market[0].dict()["metadata"]["clob_token_ids"])[1]
-        order_args = MarketOrderArgs(
-            token_id=token_id,
-            amount=amount,
+    def execute_order_via_rust(
+        self,
+        token_id: str,
+        amount: float,
+        side: str = "BUY",
+        price: float | None = None,
+        order_type: str | None = None,
+        dry_run: bool = False,
+    ) -> str:
+        """Place an order through the verified Rust tool (pm-first-trade).
+
+        The Python clob SDK (py-clob-client, incl. latest 0.34.6 and GitHub
+        main) only emits V1 orders; the exchange now rejects those with
+        ``400 invalid order version``. The Rust SDK 0.8.0 tool signs current
+        (V3) orders that are accepted. agents keeps all decision logic
+        (market selection, cap, dry-run) and delegates signing/placement
+        to the Rust executor.
+        """
+        import subprocess
+
+        rust_bin = os.getenv(
+            "PM_FIRST_TRADE_BIN",
+            os.path.expanduser(
+                "~/workspace/pm-first-trade/target/release/pm-first-trade"
+            ),
         )
-        signed_order = self.client.create_market_order(order_args)
-        print("Execute market order... signed_order ", signed_order)
-        resp = self.client.post_order(signed_order, orderType=OrderType.FOK)
-        print(resp)
-        print("Done!")
-        return resp
+        if not os.path.exists(rust_bin):
+            raise FileNotFoundError(f"pm-first-trade binary missing: {rust_bin}")
+
+        trade_env = {
+            "POLYMARKET_PRIVATE_KEY": self.private_key,
+            "TOKEN_ID": token_id,
+            "SIDE": side.lower(),
+            "AMOUNT": str(amount),
+            "MAX_AMOUNT": os.getenv("MAX_TRADE_USD", "5"),
+        }
+        if price is not None:
+            trade_env["PRICE"] = str(price)
+        if order_type:
+            trade_env["ORDER_TYPE"] = order_type
+        if dry_run:
+            trade_env["DRY_RUN"] = "1"
+
+        # Rust executor talks to clob.polymarket.com directly (native TLS);
+        # strip env-proxy vars that could poison the child process.
+        proc_env = {
+            k: v
+            for k, v in os.environ.items()
+            if k.lower() not in ("all_proxy", "http_proxy", "https_proxy")
+        }
+        proc_env.update(trade_env)
+
+        result = subprocess.run(
+            [rust_bin], env=proc_env, capture_output=True, text=True, timeout=120
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+        print(f"[execute_order_via_rust] exit={result.returncode}\n{out}")
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"pm-first-trade failed (exit {result.returncode}): {out[-500:]}"
+            )
+        return out
+
+    def execute_market_order(self, market, amount, side: str = "BUY") -> str:
+        token_id = ast.literal_eval(market[0].dict()["metadata"]["clob_token_ids"])[1]
+        dry_run = os.getenv("DRY_RUN") == "1"
+        return self.execute_order_via_rust(
+            token_id=token_id, amount=amount, side=side, dry_run=dry_run
+        )
 
     def get_usdc_balance(self) -> float:
         try:
-            balance_res = self.usdc.functions.balanceOf(
-                self.get_address_for_private_key()
-            ).call()
-            return float(balance_res / 10e5)
+            # Balance of the *funding* address: the Safe (or signer EOA when
+            # no funder is configured) — the EOA itself usually holds 0.
+            address = _POLY_FUNDER_ADDRESS or self.get_address_for_private_key()
+            balance_res = self.usdc.functions.balanceOf(address).call()
+            return float(balance_res / 1e6)
         except Exception as err:
             # polygon-rpc.com now requires an API key (HTTP 401) and the proxy
             # is flaky; a read-only balance failure should not abort a dry run
