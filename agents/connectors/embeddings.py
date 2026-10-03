@@ -1,8 +1,6 @@
 import os
-from typing import List
 
 import httpx
-
 from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 
@@ -38,7 +36,7 @@ class MiniMaxEmbeddings(Embeddings):
                 "MiniMaxEmbeddings. Set it in your .env file."
             )
 
-    def _embed_texts(self, texts: List[str], type: str) -> List[List[float]]:
+    def _embed_texts(self, texts: list[str], type: str) -> list[list[float]]:
         response = _httpx_client.post(
             MINIMAX_EMBEDDINGS_URL,
             headers={
@@ -64,19 +62,19 @@ class MiniMaxEmbeddings(Embeddings):
             raise RuntimeError("MiniMax embeddings returned no vectors")
         return vectors
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of documents (stored corpus).
 
         MiniMax rejects requests with too many text blocks ("embedding too
         much blocks"), so split into batches of BATCH_SIZE.
         """
         BATCH_SIZE = 32
-        all_vectors: List[List[float]] = []
+        all_vectors: list[list[float]] = []
         for i in range(0, len(texts), BATCH_SIZE):
             batch = texts[i : i + BATCH_SIZE]
             all_vectors.extend(self._embed_texts(batch, type="db"))
         return all_vectors
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         """Embed a single query string."""
         return self._embed_texts([text], type="query")[0]

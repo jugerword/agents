@@ -1,8 +1,9 @@
+import contextlib
+import shutil
+
 from agents.application.executor import Executor as Agent
 from agents.polymarket.gamma import GammaMarketClient as Gamma
 from agents.polymarket.polymarket import Polymarket
-
-import shutil
 
 
 class Trader:
@@ -15,14 +16,10 @@ class Trader:
         self.clear_local_dbs()
 
     def clear_local_dbs(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             shutil.rmtree("local_db_events")
-        except:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             shutil.rmtree("local_db_markets")
-        except:
-            pass
 
     def one_best_trade(self, max_attempts: int = 3) -> None:
         """
@@ -60,7 +57,10 @@ class Trader:
                 best_trade = self.agent.source_best_trade(market)
                 print(f"5. CALCULATED TRADE {best_trade}")
 
-                amount = self.agent.format_trade_prompt_for_execution(best_trade)
+                # Compute the position size; execution is disabled for TOS
+                # reasons (polymarket.com/tos). Keeping the variable documents
+                # the intended flow and is used once execution is re-enabled.
+                amount = self.agent.format_trade_prompt_for_execution(best_trade)  # noqa: F841
                 # Please refer to TOS before uncommenting: polymarket.com/tos
                 # trade = self.polymarket.execute_market_order(market, amount)
                 # print(f"6. TRADED {trade}")

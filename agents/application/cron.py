@@ -1,9 +1,9 @@
-from agents.application.trade import Trader
-
 import time
 
 from scheduler import Scheduler as SchedulerLib
 from scheduler.trigger import Monday
+
+from agents.application.trade import Trader
 
 
 class TraderScheduler:

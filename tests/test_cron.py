@@ -11,8 +11,9 @@ with mock.patch.dict(sys.modules):
     trader_mod.Trader = mock.MagicMock(return_value=fake_trader)
     sys.modules["agents.application.trade"] = trader_mod
 
-    from agents.application.cron import TraderScheduler, TradingAgent
     from scheduler import Scheduler as SchedulerLib
+
+    from agents.application.cron import TraderScheduler, TradingAgent
 
 
 def test_scheduler_uses_library_class():

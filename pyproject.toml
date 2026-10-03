@@ -1,0 +1,11 @@
+[tool.ruff]
+# The Prompter template strings (agents/application/prompts.py) are long,
+# whitespace-sensitive prompt bodies by design; exempting E501/W293/W291 there
+# is deliberate, not an oversight. All other files must stay clean.
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"agents/application/prompts.py" = ["E501", "W293", "W291"]

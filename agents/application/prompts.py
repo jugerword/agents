@@ -1,4 +1,3 @@
-from typing import List
 from datetime import datetime
 
 
@@ -17,7 +16,7 @@ class Prompter:
         """
 
     def market_analyst(self) -> str:
-        return f"""
+        return """
         You are a market analyst that takes a description of an event and produces a market forecast. 
         Assign a probability estimate to the event occurring described by the user
         """
@@ -31,25 +30,6 @@ class Prompter:
         You are able to review a news article or text and
         assign a sentiment score between 0 and 1. 
         
-        """
-
-    def prompts_polymarket(
-        self, data1: str, data2: str, market_question: str, outcome: str
-    ) -> str:
-        current_market_data = str(data1)
-        current_event_data = str(data2)
-        return f"""
-        You are an AI assistant for users of a prediction market called Polymarket.
-        Users want to place bets based on their beliefs of market outcomes such as political or sports events.
-        
-        Here is data for current Polymarket markets {current_market_data} and 
-        current Polymarket events {current_event_data}.
-
-        Help users identify markets to trade based on their interests or queries.
-        Provide specific information for markets including probabilities of outcomes.
-        Give your response in the following format:
-
-        I believe {market_question} has a likelihood {float} for outcome of {outcome}.
         """
 
     def prompts_polymarket(self, data1: str, data2: str) -> str:
@@ -79,12 +59,12 @@ class Prompter:
         """
 
     def read_polymarket(self) -> str:
-        return f"""
+        return """
         You are an prediction market analyst.
         """
 
     def polymarket_analyst_api(self) -> str:
-        return f"""You are an AI assistant for analyzing prediction markets.
+        return """You are an AI assistant for analyzing prediction markets.
                 You will be provided with json output for api data from Polymarket.
                 Polymarket is an online prediction market that lets users Bet on the outcome of future events in a wide range of topics, like sports, politics, and pop culture. 
                 Get accurate real-time probabilities of the events that matter most to you. """
@@ -92,7 +72,7 @@ class Prompter:
     def filter_events(self) -> str:
         return (
             self.polymarket_analyst_api()
-            + f"""
+            + """
         
         Filter these events for the ones you will be best at trading on profitably.
 
@@ -102,7 +82,7 @@ class Prompter:
     def filter_markets(self) -> str:
         return (
             self.polymarket_analyst_api()
-            + f"""
+            + """
         
         Filter these markets for the ones you will be best at trading on profitably.
 
@@ -146,12 +126,12 @@ class Prompter:
     def one_best_trade(
         self,
         prediction: str,
-        outcomes: List[str],
+        outcomes: list[str],
         outcome_prices: str,
     ) -> str:
         return (
             self.polymarket_analyst_api()
-            + f"""
+            + """
         
                 Imagine yourself as the top trader on Polymarket, dominating the world of information markets with your keen insights and strategic acumen. You have an extraordinary ability to analyze and interpret data from diverse sources, turning complex information into profitable trading opportunities.
                 You excel in predicting the outcomes of global events, from political elections to economic developments, using a combination of data analysis and intuition. Your deep understanding of probability and statistics allows you to assess market sentiment and make informed decisions quickly.
@@ -188,7 +168,7 @@ class Prompter:
         )
 
     def format_price_from_one_best_trade_output(self, output: str) -> str:
-        return f"""
+        return """
         
         You will be given an input such as:
     
@@ -206,7 +186,7 @@ class Prompter:
         """
 
     def format_size_from_one_best_trade_output(self, output: str) -> str:
-        return f"""
+        return """
         
         You will be given an input such as:
     

@@ -1,9 +1,10 @@
-import httpx
 import json
 import time
 
+import httpx
+
 from agents.polymarket.polymarket import Polymarket
-from agents.utils.objects import Market, PolymarketEvent, ClobReward, Tag
+from agents.utils.objects import ClobReward, Market, PolymarketEvent, Tag
 
 # macOS env-proxy interacts badly with mihomo (SSL EOF / handshake timeouts);
 # use an explicit HTTP proxy with env discovery disabled for every call.
@@ -79,54 +80,76 @@ class GammaMarketClient:
         except Exception as err:
             print(f"[parse_event] Caught exception: {err}")
 
+    def _get_with_retry(self, url: str, params: dict, attempts: int = 4) -> dict:
+        """GET with explicit HTTP proxy + bounded retry.
+
+        Same network policy as get_market/get_all_current_markets: a fresh
+        client per call avoids reusing a stale keep-alive connection that the
+        mihomo proxy intermittently drops (SSL EOF / silent hangs). Returns the
+        parsed JSON on success, raises RuntimeError after attempts.
+        """
+        last_err = None
+        for attempt in range(attempts):
+            try:
+                with httpx.Client(
+                    proxy=_GAMMA_PROXIES,
+                    trust_env=False,
+                    timeout=30,
+                    limits=httpx.Limits(max_keepalive_connections=0),
+                ) as client:
+                    response = client.get(url, params=params)
+                if response.status_code == 200:
+                    return response.json()
+                last_err = f"HTTP {response.status_code}"
+            except Exception as err:
+                last_err = str(err)[:120]
+            if attempt < attempts - 1:
+                time.sleep(1.5)
+        raise RuntimeError(f"GET {url} failed after {attempts} attempts: {last_err}")
+
     def get_markets(
-        self, querystring_params={}, parse_pydantic=False, local_file_path=None
+        self, querystring_params=None, parse_pydantic=False, local_file_path=None
     ) -> "list[Market]":
         if parse_pydantic and local_file_path is not None:
             raise Exception(
                 'Cannot use "parse_pydantic" and "local_file" params simultaneously.'
             )
 
-        response = httpx.get(self.gamma_markets_endpoint, params=querystring_params)
-        if response.status_code == 200:
-            data = response.json()
-            if local_file_path is not None:
-                with open(local_file_path, "w+") as out_file:
-                    json.dump(data, out_file)
-            elif not parse_pydantic:
-                return data
-            else:
-                markets: list[Market] = []
-                for market_object in data:
-                    markets.append(self.parse_pydantic_market(market_object))
-                return markets
+        data = self._get_with_retry(
+            self.gamma_markets_endpoint, querystring_params or {}
+        )
+        if local_file_path is not None:
+            with open(local_file_path, "w+") as out_file:
+                json.dump(data, out_file)
+        elif not parse_pydantic:
+            return data
         else:
-            print(f"Error response returned from api: HTTP {response.status_code}")
-            raise Exception()
+            markets: list[Market] = []
+            for market_object in data:
+                markets.append(self.parse_pydantic_market(market_object))
+            return markets
 
     def get_events(
-        self, querystring_params={}, parse_pydantic=False, local_file_path=None
+        self, querystring_params=None, parse_pydantic=False, local_file_path=None
     ) -> "list[PolymarketEvent]":
         if parse_pydantic and local_file_path is not None:
             raise Exception(
                 'Cannot use "parse_pydantic" and "local_file" params simultaneously.'
             )
 
-        response = httpx.get(self.gamma_events_endpoint, params=querystring_params)
-        if response.status_code == 200:
-            data = response.json()
-            if local_file_path is not None:
-                with open(local_file_path, "w+") as out_file:
-                    json.dump(data, out_file)
-            elif not parse_pydantic:
-                return data
-            else:
-                events: list[PolymarketEvent] = []
-                for market_event_obj in data:
-                    events.append(self.parse_event(market_event_obj))
-                return events
+        data = self._get_with_retry(
+            self.gamma_events_endpoint, querystring_params or {}
+        )
+        if local_file_path is not None:
+            with open(local_file_path, "w+") as out_file:
+                json.dump(data, out_file)
+        elif not parse_pydantic:
+            return data
         else:
-            raise Exception()
+            events: list[PolymarketEvent] = []
+            for market_event_obj in data:
+                events.append(self.parse_pydantic_event(market_event_obj))
+            return events
 
     def get_all_markets(self, limit=2) -> "list[Market]":
         return self.get_markets(querystring_params={"limit": limit})

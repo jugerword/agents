@@ -2,9 +2,9 @@ import json
 import os
 import time
 
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.document_loaders import JSONLoader
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import JSONLoader
+from langchain_openai import OpenAIEmbeddings
 
 from agents.connectors.embeddings import MiniMaxEmbeddings
 from agents.polymarket.gamma import GammaMarketClient
@@ -115,7 +115,6 @@ class PolymarketRAG:
         )
         loaded_docs = loader.load()
         embedding_function = get_embedding_function()
-        vector_db_directory = f"{local_events_directory}/chroma"
         # In-memory Chroma: the trader rebuilds and discards this DB on every
         # run, so persisting it buys nothing and causes chromadb 0.5.x's
         # SQLite lock issues on rebuild (readonly database) when the same
@@ -156,7 +155,6 @@ class PolymarketRAG:
         )
         loaded_docs = loader.load()
         embedding_function = get_embedding_function()
-        vector_db_directory = f"{local_events_directory}/chroma"
         # In-memory Chroma (see comment in events()): temporary per-run DB.
         local_db = Chroma.from_documents(
             loaded_docs, embedding_function

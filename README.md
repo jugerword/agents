@@ -133,11 +133,17 @@ This code is free and publicly available under MIT License open source license (
    python scripts/python/cli.py
    ```
 
-   Or just go trade! 
+   Or run the autonomous trader decision pipeline (no order is placed):
 
    ```
    python agents/application/trade.py
    ```
+
+   > **Trade execution is disabled**: `execute_market_order` in
+   > `agents/application/trade.py` is commented out for Polymarket Terms of
+   > Service reasons (see [Terms of Service](#terms-of-service)). The pipeline
+   > runs the full filter/source/decide flow but never submits a real order.
+   > Uncomment only if you are permitted to trade on Polymarket.
 
 8. Note: If running the command outside of docker, please set the following env var:
 
@@ -193,13 +199,24 @@ Retrieve and display a list of markets from Polymarket, sorted by volume.
 ## Running tests
 
 The test suite covers the news connector's endpoint selection, the MiniMax
-embeddings adapter, the embedding-provider dispatch, and the cron scheduler
-logic. It is offline (all external calls are mocked):
+embeddings adapter, the embedding-provider dispatch, the cron scheduler logic,
+the Gamma network layer (explicit proxy + retry), and the autonomous trader
+main path. It is offline (all external calls are mocked):
 
 ```
 export PYTHONPATH="."
 pytest tests/ -v
 ```
+
+Static analysis is enforced with ruff (see `pyproject.toml`):
+
+```
+ruff check agents scripts tests
+```
+
+> **Python version note**: the pinned dependencies are developed and tested on
+> **Python 3.11**. The CI workflow and Dockerfile use `python:3.11`; older
+> setup steps in this README that mention Python 3.9 predate that decision.
 
 ## Known issues & troubleshooting
 
@@ -250,7 +267,9 @@ This project is licensed under the MIT License. See the [LICENSE](https://github
 
 # Contact
 
-For any questions or inquiries, please contact liam@polymarket.com or reach out at www.greenestreet.xyz
+This is a community fork. For questions or issues with this fork, please open
+an issue at https://github.com/jugerword/agents. The upstream project is
+maintained by Polymarket (originally liam@polymarket.com, www.greenestreet.xyz).
 
 Enjoy using the CLI application! If you encounter any issues, feel free to open an issue on the repository.
 

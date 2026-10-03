@@ -68,7 +68,7 @@ def test_error_status_raises():
     ):
         try:
             emb.embed_documents(["x"])
-            assert False, "expected RuntimeError"
+            raise AssertionError("expected RuntimeError")
         except RuntimeError as err:
             assert "missing type" in str(err)
 
@@ -77,6 +77,6 @@ def test_missing_api_key_raises():
     with mock.patch.dict("os.environ", {}, clear=True):
         try:
             MiniMaxEmbeddings()
-            assert False, "expected ValueError"
+            raise AssertionError("expected ValueError")
         except ValueError as err:
             assert "OPENAI_API_KEY" in str(err)

@@ -1,12 +1,12 @@
 import typer
 from devtools import pprint
 
-from agents.polymarket.polymarket import Polymarket
+from agents.application.creator import Creator
+from agents.application.executor import Executor
+from agents.application.trade import Trader
 from agents.connectors.chroma import PolymarketRAG
 from agents.connectors.news import News
-from agents.application.trade import Trader
-from agents.application.executor import Executor
-from agents.application.creator import Creator
+from agents.polymarket.polymarket import Polymarket
 
 app = typer.Typer()
 
@@ -90,7 +90,8 @@ def ask_superforecaster(event_title: str, market_question: str, outcome: str) ->
     Ask a superforecaster about a trade
     """
     print(
-        f"event: str = {event_title}, question: str = {market_question}, outcome (usually yes or no): str = {outcome}"
+        f"event: str = {event_title}, question: str = {market_question}, "
+        f"outcome (usually yes or no): str = {outcome}"
     )
     executor = Executor()
     response = executor.get_superforecast(
