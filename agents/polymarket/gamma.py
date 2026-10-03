@@ -141,7 +141,8 @@ class GammaMarketClient:
         # return the same first page, causing an infinite loop). The response
         # carries the next cursor in the next_cursor field.
         # Retry transient proxy/SSL failures (observed: mihomo proxy drops
-        # long-lived connections intermittently).
+        # long-lived connections intermittently). A fresh client per call
+        # avoids reusing a stale keep-alive connection that hangs forever.
         import time as _time
 
         cursor = ""
@@ -155,13 +156,15 @@ class GammaMarketClient:
                 "after_cursor": cursor,
             }
             market_batch = []
-            for attempt in range(5):
+            for attempt in range(8):
                 try:
-                    response = httpx.get(
-                        f"{self.gamma_url}/markets/keyset",
-                        params=params,
+                    with httpx.Client(
                         timeout=30,
-                    )
+                        limits=httpx.Limits(max_keepalive_connections=0),
+                    ) as client:
+                        response = client.get(
+                            f"{self.gamma_url}/markets/keyset", params=params
+                        )
                     if response.status_code != 200:
                         print(
                             "Error response returned from api: "
@@ -173,9 +176,9 @@ class GammaMarketClient:
                     cursor = data.get("next_cursor", "")
                     break
                 except Exception as err:
-                    if attempt == 4:
+                    if attempt == 7:
                         raise
-                    backoff = 2 ** attempt  # 1s, 2s, 4s, 8s
+                    backoff = 2 ** (attempt + 1)  # 2s, 4s, 8s, 16s, 32s...
                     print(f"[keyset] batch retry {attempt+1} (backoff {backoff}s): {err}")
                     _time.sleep(backoff)
 
