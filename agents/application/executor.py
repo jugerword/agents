@@ -140,11 +140,15 @@ class Executor:
         markets = []
         for e in filtered_events:
             data = json.loads(e[0].json())
-            market_ids = data["metadata"]["markets"].split(",")
+            markets_field = data.get("metadata", {}).get("markets", "")
+            market_ids = [x for x in markets_field.split(",") if x] if markets_field else []
             for market_id in market_ids:
-                market_data = self.gamma.get_market(market_id)
-                formatted_market_data = self.polymarket.map_api_to_market(market_data)
-                markets.append(formatted_market_data)
+                try:
+                    market_data = self.gamma.get_market(market_id)
+                    formatted_market_data = self.polymarket.map_api_to_market(market_data)
+                    markets.append(formatted_market_data)
+                except Exception as err:
+                    print(f"[map_filtered_events_to_markets] skip market {market_id}: {err}")
         return markets
 
     def filter_markets(self, markets) -> "list[tuple]":
@@ -157,9 +161,11 @@ class Executor:
     def source_best_trade(self, market_object) -> str:
         market_document = market_object[0].dict()
         market = market_document["metadata"]
-        outcome_prices = ast.literal_eval(market["outcome_prices"])
-        outcomes = ast.literal_eval(market["outcomes"])
-        question = market["question"]
+        outcome_prices_raw = market.get("outcome_prices", "") or ""
+        outcome_prices = ast.literal_eval(outcome_prices_raw) if outcome_prices_raw else []
+        outcomes_raw = market.get("outcomes", "") or ""
+        outcomes = ast.literal_eval(outcomes_raw) if outcomes_raw else []
+        question = market.get("question", "") or ""
         description = market_document["page_content"]
 
         prompt = self.prompter.superforecaster(question, description, outcomes)

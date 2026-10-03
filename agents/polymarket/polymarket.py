@@ -235,21 +235,26 @@ class Polymarket:
             return self.map_api_to_market(market, token_id)
 
     def map_api_to_market(self, market, token_id: str = "") -> SimpleMarket:
+        # Some gamma market payloads omit optional fields (e.g. endDate for
+        # newly created markets); use safe defaults instead of KeyError.
+        def _get(key, default=""):
+            return market[key] if key in market and market[key] is not None else default
+
         market = {
             "id": int(market["id"]),
-            "question": market["question"],
-            "end": market["endDate"],
-            "description": market["description"],
-            "active": market["active"],
+            "question": _get("question", ""),
+            "end": _get("endDate", ""),
+            "description": _get("description", ""),
+            "active": _get("active", False),
             # "deployed": market["deployed"],
-            "funded": market["funded"],
-            "rewardsMinSize": float(market["rewardsMinSize"]),
-            "rewardsMaxSpread": float(market["rewardsMaxSpread"]),
+            "funded": _get("funded", False),
+            "rewardsMinSize": float(_get("rewardsMinSize", 0.0)),
+            "rewardsMaxSpread": float(_get("rewardsMaxSpread", 0.0)),
             # "volume": float(market["volume"]),
-            "spread": float(market["spread"]),
-            "outcomes": str(market["outcomes"]),
-            "outcome_prices": str(market["outcomePrices"]),
-            "clob_token_ids": str(market["clobTokenIds"]),
+            "spread": float(_get("spread", 0.0)),
+            "outcomes": str(_get("outcomes", "")),
+            "outcome_prices": str(_get("outcomePrices", "")),
+            "clob_token_ids": str(_get("clobTokenIds", "")),
         }
         if token_id:
             market["clob_token_ids"] = token_id
@@ -418,10 +423,17 @@ class Polymarket:
         return resp
 
     def get_usdc_balance(self) -> float:
-        balance_res = self.usdc.functions.balanceOf(
-            self.get_address_for_private_key()
-        ).call()
-        return float(balance_res / 10e5)
+        try:
+            balance_res = self.usdc.functions.balanceOf(
+                self.get_address_for_private_key()
+            ).call()
+            return float(balance_res / 10e5)
+        except Exception as err:
+            # polygon-rpc.com now requires an API key (HTTP 401) and the proxy
+            # is flaky; a read-only balance failure should not abort a dry run
+            # / decision-only flow. Log and return 0.0.
+            print(f"[get_usdc_balance] balance query failed: {err}")
+            return 0.0
 
 
 def test():

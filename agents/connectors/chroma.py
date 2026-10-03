@@ -35,6 +35,14 @@ def get_embedding_function():
     return MiniMaxEmbeddings()
 
 
+def _ensure_persist_dir(path: str) -> None:
+    """Chroma 0.5.x requires the persist_directory to already exist, otherwise
+    the embedded SQLite open fails with 'attempt to write a readonly database'.
+    Create it (and any parents) before Chroma.from_documents."""
+    if not os.path.isdir(path):
+        os.makedirs(path, exist_ok=True)
+
+
 class PolymarketRAG:
     def __init__(self, local_db_directory=None, embedding_function=None) -> None:
         self.gamma_client = GammaMarketClient()
@@ -50,6 +58,7 @@ class PolymarketRAG:
         loaded_docs = loader.load()
 
         embedding_function = get_embedding_function()
+        _ensure_persist_dir(vector_db_directory)
         Chroma.from_documents(
             loaded_docs, embedding_function, persist_directory=vector_db_directory
         )
@@ -107,8 +116,12 @@ class PolymarketRAG:
         loaded_docs = loader.load()
         embedding_function = get_embedding_function()
         vector_db_directory = f"{local_events_directory}/chroma"
+        # In-memory Chroma: the trader rebuilds and discards this DB on every
+        # run, so persisting it buys nothing and causes chromadb 0.5.x's
+        # SQLite lock issues on rebuild (readonly database) when the same
+        # process rebuilds the same path. Skip persist_directory entirely.
         local_db = Chroma.from_documents(
-            loaded_docs, embedding_function, persist_directory=vector_db_directory
+            loaded_docs, embedding_function
         )
 
         # query
@@ -144,8 +157,9 @@ class PolymarketRAG:
         loaded_docs = loader.load()
         embedding_function = get_embedding_function()
         vector_db_directory = f"{local_events_directory}/chroma"
+        # In-memory Chroma (see comment in events()): temporary per-run DB.
         local_db = Chroma.from_documents(
-            loaded_docs, embedding_function, persist_directory=vector_db_directory
+            loaded_docs, embedding_function
         )
 
         # query

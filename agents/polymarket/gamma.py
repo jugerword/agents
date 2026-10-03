@@ -1,8 +1,19 @@
 import httpx
 import json
+import time
 
 from agents.polymarket.polymarket import Polymarket
 from agents.utils.objects import Market, PolymarketEvent, ClobReward, Tag
+
+# macOS env-proxy interacts badly with mihomo (SSL EOF / handshake timeouts);
+# use an explicit HTTP proxy with env discovery disabled for every call.
+_GAMMA_PROXIES = {"http://": "http://127.0.0.1:7890", "https://": "http://127.0.0.1:7890"}
+_GAMMA_HTTPX = httpx.Client(
+    proxy=_GAMMA_PROXIES,
+    trust_env=False,
+    timeout=45,
+    limits=httpx.Limits(max_keepalive_connections=0),
+)
 
 
 class GammaMarketClient:
@@ -222,9 +233,20 @@ class GammaMarketClient:
 
     def get_market(self, market_id: int) -> dict():
         url = self.gamma_markets_endpoint + "/" + str(market_id)
-        print(url)
-        response = httpx.get(url)
-        return response.json()
+        # Retry a few times: the mihomo proxy intermittently drops TLS
+        # handshakes; a single failure should not abort the whole trading run.
+        last_err = None
+        for attempt in range(4):
+            try:
+                response = _GAMMA_HTTPX.get(url)
+                if response.status_code == 200:
+                    return response.json()
+                last_err = f"HTTP {response.status_code}"
+            except Exception as err:
+                last_err = str(err)[:120]
+            if attempt < 3:
+                time.sleep(1.5)
+        raise RuntimeError(f"get_market({market_id}) failed after 4 attempts: {last_err}")
 
 
 if __name__ == "__main__":
