@@ -237,7 +237,15 @@ class Polymarket:
 
     def get_all_events(self) -> "list[SimpleEvent]":
         events = []
-        res = httpx.get(self.gamma_events_endpoint)
+        # The bare GET /events returns the 20 most recently updated events,
+        # which are usually closed in-game sports events. Query with explicit
+        # active + not-closed filters so the downstream trading filter has
+        # candidates to work with.
+        res = httpx.get(
+            self.gamma_events_endpoint,
+            params={"active": True, "closed": False, "limit": 100},
+            timeout=30,
+        )
         if res.status_code == 200:
             print(len(res.json()))
             for event in res.json():

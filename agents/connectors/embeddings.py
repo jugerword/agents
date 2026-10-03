@@ -65,8 +65,17 @@ class MiniMaxEmbeddings(Embeddings):
         return vectors
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed a list of documents (stored corpus)."""
-        return self._embed_texts(texts, type="db")
+        """Embed a list of documents (stored corpus).
+
+        MiniMax rejects requests with too many text blocks ("embedding too
+        much blocks"), so split into batches of BATCH_SIZE.
+        """
+        BATCH_SIZE = 32
+        all_vectors: List[List[float]] = []
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i : i + BATCH_SIZE]
+            all_vectors.extend(self._embed_texts(batch, type="db"))
+        return all_vectors
 
     def embed_query(self, text: str) -> List[float]:
         """Embed a single query string."""
