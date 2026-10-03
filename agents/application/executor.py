@@ -188,9 +188,19 @@ class Executor:
         return content
 
     def format_trade_prompt_for_execution(self, best_trade: str) -> float:
-        data = best_trade.split(",")
-        # price = re.findall("\d+\.\d+", data[0])[0]
-        size = re.findall("\d+\.\d+", data[1])[0]
+        # LLM output is free-form; the original comma/regex parsing is brittle
+        # (crashes on any output without a "price,size" pattern). For a dry
+        # run / decision-only flow, degrade gracefully instead of crashing.
+        try:
+            data = best_trade.split(",")
+            # price = re.findall("\d+\.\d+", data[0])[0]
+            size = re.findall("\d+\.\d+", data[1])[0]
+        except (IndexError, AttributeError):
+            print(
+                "[format_trade_prompt_for_execution] could not parse best_trade; "
+                "returning 0.0 (dry run)"
+            )
+            return 0.0
         usdc_balance = self.polymarket.get_usdc_balance()
         return float(size) * usdc_balance
 
