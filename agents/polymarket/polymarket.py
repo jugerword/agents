@@ -5,6 +5,7 @@ import os
 import pdb
 import time
 import ast
+import json
 import requests
 
 from dotenv import load_dotenv
@@ -269,21 +270,31 @@ class Polymarket:
         url = (
             f"{self.gamma_events_endpoint}?active=true&closed=false&limit=100"
         )
-        try:
-            res = subprocess.run(
-                [
-                    "curl", "-s", "--max-time", "30",
-                    "-x", "http://127.0.0.1:7890",
-                    url,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            data = json.loads(res.stdout) if res.stdout.strip() else []
-        except Exception as err:
-            print(f"[get_all_events] curl fallback failed: {err}")
-            data = []
+        data = []
+        # The mihomo proxy is intermittently flaky (SSL EOF / HTTP 000 on
+        # random requests), so retry the curl hop a few times before giving up.
+        for attempt in range(5):
+            try:
+                res = subprocess.run(
+                    [
+                        "curl", "-s", "--max-time", "30",
+                        "-x", "http://127.0.0.1:7890",
+                        url,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if res.stdout.strip():
+                    data = json.loads(res.stdout)
+                    break
+            except Exception as err:
+                print(f"[get_all_events] curl attempt {attempt+1} failed: {err}")
+            import time as _time
+            if attempt < 4:
+                _time.sleep(2)
+        if not data:
+            print("[get_all_events] all curl attempts returned empty; proxy may be down")
         if data:
             print(len(data))
             for event in data:
@@ -319,9 +330,13 @@ class Polymarket:
     ) -> "list[SimpleEvent]":
         tradeable_events = []
         for event in events:
+            # NOTE: upstream keeps `not event.restricted` here, but as of
+            # Polymarket's US-exit (2025) essentially all active, non-closed
+            # events are marked restricted=True (US IPs are blocked). For a
+            # non-US trader those events are exactly the tradeable ones, so the
+            # restricted flag is no longer a trading filter.
             if (
                 event.active
-                and not event.restricted
                 and not event.archived
                 and not event.closed
             ):
