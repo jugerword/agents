@@ -158,7 +158,17 @@ class GammaMarketClient:
             market_batch = []
             for attempt in range(8):
                 try:
+                    # trust_env=False + explicit proxy: on macOS the env proxy
+                    # mechanism (http_proxy/https_proxy) interacts badly with
+                    # mihomo and causes SSL EOF / silent hangs; explicit proxy
+                    # with env disabled is stable (verified with curl/httpx).
+                    proxies = {
+                        "http://": "http://127.0.0.1:7890",
+                        "https://": "http://127.0.0.1:7890",
+                    }
                     with httpx.Client(
+                        proxy=proxies,
+                        trust_env=False,
                         timeout=30,
                         limits=httpx.Limits(max_keepalive_connections=0),
                     ) as client:
