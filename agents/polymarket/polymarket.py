@@ -32,6 +32,19 @@ from agents.utils.objects import SimpleMarket, SimpleEvent
 
 load_dotenv()
 
+# macOS env-proxy (http_proxy/all_proxy) interacts badly with mihomo: requests
+# through it intermittently fail with SSL EOF. Use an explicit proxy + disable
+# env discovery for all httpx calls in this module (CLOB auth also goes through
+# the same proxy; gamma needs it too since direct access is blocked in CN).
+_HTTP_PROXY = "http://127.0.0.1:7890"
+_POLYMARKET_PROXIES = {"http://": _HTTP_PROXY, "https://": _HTTP_PROXY}
+_POLYMARKET_HTTPX = httpx.Client(
+    proxy=_POLYMARKET_PROXIES,
+    trust_env=False,
+    timeout=30,
+    limits=httpx.Limits(max_keepalive_connections=0),
+)
+
 
 class Polymarket:
     def __init__(self) -> None:
@@ -66,8 +79,14 @@ class Polymarket:
             address=self.ctf_address, abi=self.erc1155_set_approval
         )
 
-        self._init_api_keys()
         self._init_approvals(False)
+
+    def _ensure_api_keys(self) -> None:
+        """Lazily initialise the CLOB client (requires a network call to
+        derive the API key). Not needed for read-only flows (market/event
+        queries, RAG), so defer until an actual order is placed."""
+        if getattr(self, "client", None) is None:
+            self._init_api_keys()
 
     def _init_api_keys(self) -> None:
         self.client = ClobClient(
@@ -188,7 +207,7 @@ class Polymarket:
 
     def get_all_markets(self) -> "list[SimpleMarket]":
         markets = []
-        res = httpx.get(self.gamma_markets_endpoint)
+        res = _POLYMARKET_HTTPX.get(self.gamma_markets_endpoint)
         if res.status_code == 200:
             for market in res.json():
                 try:
@@ -208,7 +227,7 @@ class Polymarket:
 
     def get_market(self, token_id: str) -> SimpleMarket:
         params = {"clob_token_ids": token_id}
-        res = httpx.get(self.gamma_markets_endpoint, params=params)
+        res = _POLYMARKET_HTTPX.get(self.gamma_markets_endpoint, params=params)
         if res.status_code == 200:
             data = res.json()
             market = data[0]
@@ -241,14 +260,33 @@ class Polymarket:
         # which are usually closed in-game sports events. Query with explicit
         # active + not-closed filters so the downstream trading filter has
         # candidates to work with.
-        res = httpx.get(
-            self.gamma_events_endpoint,
-            params={"active": True, "closed": False, "limit": 100},
-            timeout=30,
+        # Fetch via curl subprocess: the mihomo HTTP proxy intermittently drops
+        # Python's httpx TLS tunnels (SSL EOF) while curl is stable, and the
+        # env-proxy mechanism on macOS is unreliable, so delegate the network
+        # hop to curl with an explicit -x proxy.
+        import subprocess
+
+        url = (
+            f"{self.gamma_events_endpoint}?active=true&closed=false&limit=100"
         )
-        if res.status_code == 200:
-            print(len(res.json()))
-            for event in res.json():
+        try:
+            res = subprocess.run(
+                [
+                    "curl", "-s", "--max-time", "30",
+                    "-x", "http://127.0.0.1:7890",
+                    url,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            data = json.loads(res.stdout) if res.stdout.strip() else []
+        except Exception as err:
+            print(f"[get_all_events] curl fallback failed: {err}")
+            data = []
+        if data:
+            print(len(data))
+            for event in data:
                 try:
                     print(1)
                     event_data = self.map_api_to_event(event)
@@ -296,6 +334,7 @@ class Polymarket:
 
     def get_sampling_simplified_markets(self) -> "list[SimpleEvent]":
         markets = []
+        self._ensure_api_keys()
         raw_sampling_simplified_markets = self.client.get_sampling_simplified_markets()
         for raw_market in raw_sampling_simplified_markets["data"]:
             token_one_id = raw_market["tokens"][0]["token_id"]
@@ -304,9 +343,11 @@ class Polymarket:
         return markets
 
     def get_orderbook(self, token_id: str) -> OrderBookSummary:
+        self._ensure_api_keys()
         return self.client.get_order_book(token_id)
 
     def get_orderbook_price(self, token_id: str) -> float:
+        self._ensure_api_keys()
         return float(self.client.get_price(token_id))
 
     def get_address_for_private_key(self):
@@ -342,11 +383,13 @@ class Polymarket:
         return order
 
     def execute_order(self, price, size, side, token_id) -> str:
+        self._ensure_api_keys()
         return self.client.create_and_post_order(
             OrderArgs(price=price, size=size, side=side, token_id=token_id)
         )
 
     def execute_market_order(self, market, amount) -> str:
+        self._ensure_api_keys()
         token_id = ast.literal_eval(market[0].dict()["metadata"]["clob_token_ids"])[1]
         order_args = MarketOrderArgs(
             token_id=token_id,
@@ -396,7 +439,7 @@ def test():
 def gamma():
     url = "https://gamma-com"
     markets_url = url + "/markets"
-    res = httpx.get(markets_url)
+    res = _POLYMARKET_HTTPX.get(markets_url)
     code = res.status_code
     if code == 200:
         markets: list[SimpleMarket] = []
