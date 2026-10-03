@@ -152,7 +152,7 @@ class GammaMarketClient:
                 "keyset": next_cursor,
             }
             market_batch = []
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
                     response = httpx.get(
                         f"{self.gamma_url}/markets/keyset",
@@ -170,10 +170,11 @@ class GammaMarketClient:
                     next_cursor = data.get("next_cursor", "")
                     break
                 except Exception as err:
-                    if attempt == 2:
+                    if attempt == 4:
                         raise
-                    print(f"[keyset] batch retry {attempt+1}: {err}")
-                    _time.sleep(2)
+                    backoff = 2 ** attempt  # 1s, 2s, 4s, 8s
+                    print(f"[keyset] batch retry {attempt+1} (backoff {backoff}s): {err}")
+                    _time.sleep(backoff)
 
             all_markets.extend(market_batch)
 
